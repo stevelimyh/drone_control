@@ -270,6 +270,8 @@ MAX_STEPS = 500  # Add max steps limit to prevent the agent from running indefin
 
 train_rewards = []
 test_rewards = []
+mean_train_rewards = []
+mean_test_rewards = []
 
 start_step = 1
 if LOAD_MODEL:
@@ -286,24 +288,27 @@ for episode in range(start_step, MAX_EPISODES + 1):
     train_rewards.append(train_reward)
     test_rewards.append(test_reward)
     
-    mean_train_rewards = np.mean(train_rewards[-N_TRIALS:])
-    mean_test_rewards = np.mean(test_rewards[-N_TRIALS:])
+    mean_train_reward = np.mean(train_rewards[-N_TRIALS:])
+    mean_test_reward = np.mean(test_rewards[-N_TRIALS:])
+    
+    mean_train_rewards.append(mean_train_reward)
+    mean_test_rewards.append(mean_test_reward)
     
     # Log train and test rewards to TensorBoard
-    writer.add_scalar('Train/Reward', mean_train_rewards, episode)
-    writer.add_scalar('Test/Reward', mean_test_rewards, episode)
+    writer.add_scalar('Train/Reward', mean_train_reward, episode)
+    writer.add_scalar('Test/Reward', mean_test_reward, episode)
     writer.add_scalar('Loss/Policy Loss', policy_loss, episode)
     writer.add_scalar('Loss/Value Loss', value_loss, episode)
     
-    print(f'Mean Train Reward: {mean_train_rewards:.2f} | Mean Test Reward: {mean_test_rewards:.2f} ')
+    print(f'Mean Train Reward: {mean_train_reward:.2f} | Mean Test Reward: {mean_test_reward:.2f} ')
     print("\n")
     
     if episode % 10 == 0:
-        save_model(policy, optimizer, filename=f"saves/ppo_demo1b_drone_model.pth")
+        save_model(policy, optimizer, filename=f"saves/ppo_demo1_drone_model.pth")
 
 plt.figure(figsize=(12,8))
-plt.plot(test_rewards, label='Test Reward')
-plt.plot(train_rewards, label='Train Reward')
+plt.plot(mean_test_rewards, label='Mean Test Rewards')
+plt.plot(mean_train_rewards, label='Mean Train Rewards')
 plt.xlabel('Episode', fontsize=20)
 plt.ylabel('Reward', fontsize=20)
 plt.legend(loc='lower right')
