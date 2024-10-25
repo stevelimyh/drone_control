@@ -11,7 +11,7 @@ import random
 from drone_control_gym import * # Import your drone environment
 from torch.utils.tensorboard import SummaryWriter
 
-writer = SummaryWriter(log_dir="saves/ppo_demo1/")
+writer = SummaryWriter(log_dir="saves/ppo_demo1b/")
 
 # Set random seed for reproducibility
 SEED = 1234
@@ -78,7 +78,7 @@ INPUT_DIM = 17  # = 17, as derived from get_all_state()
 # Define the number of actions based on your drone's action list
 OUTPUT_DIM = len(ACTIONS)  # There are 16 actions in the ACTIONS list
 
-HIDDEN_DIM = 256  # You can adjust this based on your model's complexity
+HIDDEN_DIM = 128  # You can adjust this based on your model's complexity
 
 # Create the actor and critic networks
 actor = MLP(INPUT_DIM, HIDDEN_DIM, OUTPUT_DIM)
@@ -97,6 +97,10 @@ LEARNING_RATE = 0.0005
 
 optimizer = optim.Adam(policy.parameters(), lr = LEARNING_RATE)
 
+# New PPO-specific parameters
+PPO_STEPS = 5
+PPO_CLIP = 0.2
+
 def train(env, agent, optimizer, discount_factor, trace_decay, max_steps=500):
     policy.train()
     
@@ -104,10 +108,11 @@ def train(env, agent, optimizer, discount_factor, trace_decay, max_steps=500):
     values = []
     rewards = []
     dones = []
+    states = []
+    actions = []  # Add actions here to store the taken actions
     episode_reward = 0
     step_count = 0
     done = False
-
     
     # Reset environment
     state = env.reset()
@@ -119,7 +124,10 @@ def train(env, agent, optimizer, discount_factor, trace_decay, max_steps=500):
         # Take action in the environment using predefined action list (ACTIONS)
         action_array = ACTIONS[action.item()]  # Map integer action to actual action array
         reward, done, state = env.step(action_array)  # Pass mapped action to the environment
-        # Store log prob, value, reward, and done flags
+        
+        # Store state, action, log prob, value, reward, and done flags
+        states.append(torch.FloatTensor(state))
+        actions.append(action)  # Store the action
         log_prob_actions.append(log_prob_action)
         values.append(value_pred)
         rewards.append(reward)
@@ -130,6 +138,8 @@ def train(env, agent, optimizer, discount_factor, trace_decay, max_steps=500):
         step_count += 1
 
     # Convert lists to tensors
+    states = torch.stack(states)
+    actions = torch.cat(actions)  # Concatenate actions into a tensor
     log_prob_actions = torch.cat(log_prob_actions)
     values = torch.cat(values).squeeze(-1)
     
@@ -137,13 +147,12 @@ def train(env, agent, optimizer, discount_factor, trace_decay, max_steps=500):
     returns = calculate_returns(rewards, discount_factor)
     advantages = calculate_advantages(rewards, values, discount_factor, trace_decay)
     
-    # Update policy and value networks
-    policy_loss, value_loss = update_policy(advantages, log_prob_actions, returns, values, optimizer)
-    
+    # Update policy and value networks using PPO steps and clipping
+    policy_loss, value_loss = update_policy(policy, states, actions, log_prob_actions, advantages, returns, optimizer, PPO_STEPS, PPO_CLIP)
+
     # Log policy and value loss to TensorBoard
     writer.add_scalar("Loss/Policy Loss", policy_loss, step_count)  # Log policy loss
     writer.add_scalar("Loss/Value Loss", value_loss, step_count)    # Log value loss
-
 
     return policy_loss, value_loss, episode_reward, step_count
 
@@ -155,8 +164,7 @@ def calculate_returns(rewards, discount_factor, normalize=True):
         returns.insert(0, R)
     returns = torch.tensor(returns)
     if normalize and len(returns) > 1:
-        # Add epsilon to avoid division by zero
-        returns = (returns - returns.mean()) / (returns.std() + 1e-5)
+        returns = (returns - returns.mean()) / (returns.std() + 1e-5)  # Normalize with epsilon for stability
     return returns
 
 def calculate_advantages(rewards, values, discount_factor, trace_decay, normalize=True):
@@ -170,27 +178,49 @@ def calculate_advantages(rewards, values, discount_factor, trace_decay, normaliz
         advantages.insert(0, advantage)
     advantages = torch.tensor(advantages)
     if normalize and len(advantages) > 1:
-        # Add epsilon to avoid division by zero
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-5)
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-5)  # Normalize with epsilon for stability
     return advantages
 
-def update_policy(advantages, log_prob_actions, returns, values, optimizer):
+def update_policy(policy, states, actions, log_prob_actions, advantages, returns, optimizer, ppo_steps, ppo_clip):
+    total_policy_loss = 0 
+    total_value_loss = 0
+    
+    states = states.detach()
+    actions = actions.detach()  # Ensure actions are detached
+    log_prob_actions = log_prob_actions.detach()
     advantages = advantages.detach()
     returns = returns.detach()
+    
+    for _ in range(ppo_steps):
+        # Get new log prob of actions for all input states
+        action_pred, value_pred = policy(states)
+        value_pred = value_pred.squeeze(-1)
+        action_prob = F.softmax(action_pred, dim=-1)
+        dist = distributions.Categorical(action_prob)
+        
+        # New log prob using old actions
+        new_log_prob_actions = dist.log_prob(actions)
+        
+        policy_ratio = (new_log_prob_actions - log_prob_actions).exp()
+                
+        policy_loss_1 = policy_ratio * advantages
+        policy_loss_2 = torch.clamp(policy_ratio, min=1.0 - ppo_clip, max=1.0 + ppo_clip) * advantages
+        
+        policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
+        
+        value_loss = F.smooth_l1_loss(returns, value_pred).mean()
+    
+        optimizer.zero_grad()
 
-    # Calculate the policy loss
-    policy_loss = -(advantages * log_prob_actions).sum()
+        policy_loss.backward()
+        value_loss.backward()
 
-    # Calculate the value loss using Huber loss (smooth L1 loss)
-    value_loss = F.smooth_l1_loss(returns, values).sum()
-
-    # Backpropagate and optimize
-    optimizer.zero_grad()
-    policy_loss.backward()
-    value_loss.backward()
-    optimizer.step()
-
-    return policy_loss.item(), value_loss.item()
+        optimizer.step()
+    
+        total_policy_loss += policy_loss.item()
+        total_value_loss += value_loss.item()
+    
+    return total_policy_loss / ppo_steps, total_value_loss / ppo_steps
 
 def evaluate(env, policy, max_steps=500):
     policy.eval()
@@ -208,17 +238,13 @@ def evaluate(env, policy, max_steps=500):
             action_pred, _ = policy(state)
             action_prob = F.softmax(action_pred, dim=-1)
 
-        # Ensure numerical stability by checking if action_prob contains NaNs or invalid values
         if torch.isnan(action_prob).any():
             print("Invalid action probabilities detected, skipping step.")
             break
 
         action = torch.argmax(action_prob, dim=-1)
 
-        # Map action index to actual action array using the ACTIONS mapping
         action_array = ACTIONS[action.item()]  # Get the corresponding action array
-        
-        # Pass the mapped action array to the environment's step function
         reward, done, state = env.step(action_array)  # Use the correct action array format
         
         episode_reward += reward
@@ -226,7 +252,7 @@ def evaluate(env, policy, max_steps=500):
 
     return episode_reward, step_count
 
-def save_model(policy, optimizer, filename="ppo_demo1_drone_model.pth"):
+def save_model(policy, optimizer, filename="ppo_demo1b_drone_model.pth"):
     checkpoint = {
         'policy_state_dict': policy.state_dict(),
         'optimizer_state_dict': optimizer.state_dict()
@@ -234,18 +260,18 @@ def save_model(policy, optimizer, filename="ppo_demo1_drone_model.pth"):
     torch.save(checkpoint, filename)
     print(f"Model and optimizer saved to {filename}")
 
-def load_model(policy, optimizer, filename="ppo_demo1_drone_model.pth"):
+def load_model(policy, optimizer, filename="ppo_demo1b_drone_model.pth"):
     checkpoint = torch.load(filename)
     policy.load_state_dict(checkpoint['policy_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     print(f"Model and optimizer loaded from {filename}")
-
-
+    
 LOAD_MODEL = False
 MAX_EPISODES = 5000
 DISCOUNT_FACTOR = 0.99
 TRACE_DECAY = 0.99
 N_TRIALS = 100
+PRINT_EVERY = 10
 MAX_STEPS = 500  # Add max steps limit to prevent the agent from running indefinitely
 
 train_rewards = []
@@ -258,15 +284,11 @@ if LOAD_MODEL:
     print("Starting from step", start_step)
 
 for episode in range(start_step, MAX_EPISODES + 1):
-    
     print(f'Episode {episode}')
-    # Train the policy using the drone environment
     policy_loss, value_loss, train_reward, train_step_count = train(train_env, policy, optimizer, DISCOUNT_FACTOR, TRACE_DECAY)
     print(f'Train Reward: {train_reward:.2f} | Training Steps: {train_step_count}')
-    # Evaluate the policy in test mode (drone environment)
-    test_reward, test_step_count = evaluate(test_env, policy, max_steps=MAX_STEPS)  # Adding max_steps for evaluation
+    test_reward, test_step_count = evaluate(test_env, policy, max_steps=MAX_STEPS)  
     print(f'Test Reward: {test_reward:.2f} | Testing Steps: {test_step_count}')
-    
     train_rewards.append(train_reward)
     test_rewards.append(test_reward)
     
@@ -283,7 +305,7 @@ for episode in range(start_step, MAX_EPISODES + 1):
     print("\n")
     
     if episode % 100 == 0:
-        save_model(policy, optimizer, filename=f"ppo_demo1_drone_model.pth")
+        save_model(policy, optimizer, filename=f"ppo_demo1b_drone_model.pth")
 
 plt.figure(figsize=(12,8))
 plt.plot(test_rewards, label='Test Reward')
