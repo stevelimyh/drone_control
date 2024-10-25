@@ -3,12 +3,10 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import torch.distributions as distributions
-
 import matplotlib.pyplot as plt
 import numpy as np
 import random
-
-from drone_control_gym import * # Import your drone environment
+from drone_control_gym import *
 from torch.utils.tensorboard import SummaryWriter
 
 writer = SummaryWriter(log_dir="saves/ppo_demo1b/")
@@ -19,7 +17,7 @@ random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
 
-# Create train and test environments using your DroneControlGym
+# Create train and test environments using DroneControlGym
 train_env = DroneControlGym()
 test_env = DroneControlGym()
 
@@ -53,7 +51,6 @@ class ActorCritic(nn.Module):
         return action_pred, value_pred
 
     def choose_action(self, state):
-        # Convert state to tensor, ensuring it's in the correct format (e.g., NumPy array)
         if isinstance(state, np.ndarray):
             state_tensor = torch.FloatTensor(state).unsqueeze(0)  # Convert state to tensor
         elif isinstance(state, list):
@@ -73,12 +70,9 @@ class ActorCritic(nn.Module):
 
         return action, log_prob_action, value_pred
 
-INPUT_DIM = 17  # = 17, as derived from get_all_state()
-
-# Define the number of actions based on your drone's action list
-OUTPUT_DIM = len(ACTIONS)  # There are 16 actions in the ACTIONS list
-
-HIDDEN_DIM = 128  # You can adjust this based on your model's complexity
+INPUT_DIM = 17  
+OUTPUT_DIM = len(ACTIONS) 
+HIDDEN_DIM = 256  #adjust this based on  model's complexity
 
 # Create the actor and critic networks
 actor = MLP(INPUT_DIM, HIDDEN_DIM, OUTPUT_DIM)
@@ -97,7 +91,7 @@ LEARNING_RATE = 0.0005
 
 optimizer = optim.Adam(policy.parameters(), lr = LEARNING_RATE)
 
-# New PPO-specific parameters
+#PPO-specific parameters
 PPO_STEPS = 5
 PPO_CLIP = 0.2
 
