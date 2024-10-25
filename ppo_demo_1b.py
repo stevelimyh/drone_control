@@ -304,7 +304,7 @@ for episode in range(start_step, MAX_EPISODES + 1):
     print(f'Mean Train Reward: {mean_train_rewards:.2f} | Mean Test Reward: {mean_test_rewards:.2f} ')
     print("\n")
     
-    if episode % 100 == 0:
+    if episode % 10 == 0:
         save_model(policy, optimizer, filename=f"saves/ppo_demo1b_drone_model.pth")
 
 plt.figure(figsize=(12,8))
