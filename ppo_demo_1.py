@@ -226,7 +226,7 @@ def evaluate(env, policy, max_steps=500):
 
     return episode_reward, step_count
 
-def save_model(policy, optimizer, filename="ppo_demo1_drone_model.pth"):
+def save_model(policy, optimizer, filename="saves/ppo_demo1_drone_model.pth"):
     checkpoint = {
         'policy_state_dict': policy.state_dict(),
         'optimizer_state_dict': optimizer.state_dict()
@@ -234,7 +234,7 @@ def save_model(policy, optimizer, filename="ppo_demo1_drone_model.pth"):
     torch.save(checkpoint, filename)
     print(f"Model and optimizer saved to {filename}")
 
-def load_model(policy, optimizer, filename="ppo_demo1_drone_model.pth"):
+def load_model(policy, optimizer, filename="saves/ppo_demo1_drone_model.pth"):
     checkpoint = torch.load(filename)
     policy.load_state_dict(checkpoint['policy_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -282,8 +282,8 @@ for episode in range(start_step, MAX_EPISODES + 1):
     print(f'Mean Train Reward: {mean_train_rewards:.2f} | Mean Test Reward: {mean_test_rewards:.2f} ')
     print("\n")
     
-    if episode % 100 == 0:
-        save_model(policy, optimizer, filename=f"ppo_demo1_drone_model.pth")
+    if episode % 10 == 0:
+        save_model(policy, optimizer, filename=f"saves/ppo_demo1_drone_model.pth")
 
 plt.figure(figsize=(12,8))
 plt.plot(test_rewards, label='Test Reward')
