@@ -26,7 +26,7 @@ IDLE_POSITION_THRESHOLD = 0.0005  # m
 GYRO_SMOOTH_THRESHOLD = 0.05  # Threshold for angular velocity (rad/s)
 ACC_SMOOTH_THRESHOLD = 0.1  # Threshold for linear acceleration (m/s^2)
 
-SCORE_TARGET_UP = 500 # Score target to increase diffculty level
+SCORE_TARGET_UP = 1500 # Score target to increase diffculty level
 SCORE_TARGET_DOWN = 0 # Score target to decrease diffculty level
 CURRICULUM_INTERVAL = 500 # Interval to adjust difficulty level
 
@@ -121,6 +121,10 @@ class DroneControlGym(gym.Env):
                     0,
                     0,
                     0,
+                    # 0, #tbp
+                    # 0, #tbp
+                    # 0, #tbp
+                    # 0, #tbp
                     -np.inf,
                     -np.inf,
                     -np.inf,
@@ -146,6 +150,10 @@ class DroneControlGym(gym.Env):
                     FULL_THROTTLE,
                     FULL_THROTTLE,
                     FULL_THROTTLE,
+                    # 1, #tbp
+                    # 1, #tbp
+                    # 1, #tbp
+                    # 1, #tbp
                     np.inf,
                     np.inf,
                     np.inf,
@@ -203,6 +211,7 @@ class DroneControlGym(gym.Env):
             for index, individual_action in enumerate(action):
                 self.motor_states[index].pop(0)
                 self.motor_states[index].append(individual_action)
+        self.motor_states_tbp = [self.motor_states[index][0] for index in range(len(self.motor_states))]
         duty_cycle = [0] * 4
         thrust = [0] * 4
         for index, individual_motor_state in enumerate(self.motor_states):
@@ -424,6 +433,7 @@ class DroneControlGym(gym.Env):
                 self.goal_attributes,
                 self.drone_rpy,
                 self.drone_motor_thrust,
+                # self.motor_states_tbp,
                 self.drone_acc,
                 self.drone_gyro,
                 self.drone_linvel,
@@ -479,6 +489,7 @@ class DroneControlGym(gym.Env):
                 self.goal_attributes,
                 self.drone_rpy,
                 self.drone_motor_thrust,
+                # self.motor_states_tbp,
                 self.drone_acc,
                 self.drone_gyro,
                 self.drone_linvel,
@@ -512,6 +523,7 @@ class DroneControlGym(gym.Env):
         self.drone_linvel = [0, 0, 0]
         self.drone_angvel = None
         self.episode_total_score = 0
+        self.motor_states_tbp = [1, 1, 1, 1]
         # self.motor_states = [
         #     [0] * RESOLUTION,
         #     [0] * RESOLUTION,
