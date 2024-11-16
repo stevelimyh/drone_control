@@ -26,12 +26,12 @@ IDLE_POSITION_THRESHOLD = 0.0005  # m
 GYRO_SMOOTH_THRESHOLD = 0.05  # Threshold for angular velocity (rad/s)
 ACC_SMOOTH_THRESHOLD = 0.1  # Threshold for linear acceleration (m/s^2)
 
-SCORE_TARGET_UP = 5000 # Score target to increase diffculty level
+# SCORE_TARGET_UP = 5000 # Score target to increase diffculty level
 SCORE_TARGET_DOWN = 0 # Score target to decrease diffculty level
 CURRICULUM_INTERVAL = 500 # Interval to adjust difficulty level
 
 TILT_THRESHOLD = 45  # degrees
-MAX_TIMESTEPS = 300
+MAX_TIMESTEPS = 500
 MAX_IDLE_STEP = 50
 GOAL_REWARD = 1
 MAX_APPROACH_REWARD = 5
@@ -42,8 +42,8 @@ GROUND_PENALTY = -10
 GOAL_ZONE_MULTIPLIER = 10000  # Scaling factor within goal zone
 APPROACH_MULTIPLIER = 5000  # Scaling factor for distance reward
 TILT_PENALTY_MULTIPLER = 0.1  # Penalty scaling for tilt (flip avoidance)
-TIME_TARGET = 20
-HOVER_REWARD = 2000
+# TIME_TARGET = 20
+HOVER_REWARD = 3000
 
 ACTIONS = [
     [0, 0, 0, 0],
@@ -74,37 +74,77 @@ class DroneControlGym(gym.Env):
 
         self.action_space = spaces.Discrete(16)
         # self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(20,), dtype=np.float32)
-        self.current_level = 1
+        self.current_level = 6
         self.all_episode_scores = []
         self.episode_count = 0
         # Define z ranges for different levels
         self.z_ranges = {
             1: (0.8, 1.2),
-            2: (0.8, 2),
-            3: (0.5, 2),
-            4: (0.5, 2.5),
-            5: (0.5, 4.0),
-            6: (0.5, 6)
+            2: (0.8, 1.2),
+            3: (0.8, 1.2),
+            4: (0.8, 1.2),
+            5: (0.8, 2),
+            6: (0.8, 2.5),
+            7: (0.5, 2.5),
+            8: (0.5, 4.0),
+            9: (0.5, 6.0),
+            10: (0.5, 6.0),
         }
         
         # Define xy ranges for different levels
         self.xy_ranges = {
-            1: 1,
-            2: 1.5,
-            3: 2.5,
-            4: 4,
-            5: 6,
-            6: 8  # Adjust upper limit as needed
+            1: 0.6,
+            2: 0.6,
+            3: 0.6,
+            4: 0.6,
+            5: 1,
+            6: 1.5,
+            7: 2.5,
+            8: 4,
+            9: 6,
+            10: 8# Adjust upper limit as needed
         }
 
         # Define goal tolerance for different levels
         self.tolerances = {
             1: 0.3,
-            2: 0.25,
-            3: 0.15,
-            4: 0.1,
-            5: 0.025,
-            6: 0.01
+            2: 0.3,
+            3: 0.3,
+            4: 0.3,
+            5: 0.25,
+            6: 0.2,
+            7: 0.15,
+            8: 0.1,
+            9: 0.05,
+            10: 0.025
+        }
+        
+        # Define time target for different levels
+        self.time_targets = {
+            1: 10,
+            2: 20,
+            3: 50,
+            4: 100,
+            5: 100,
+            6: 100,
+            7: 100,
+            8: 100,
+            9: 100,
+            10: 100
+        }
+        
+        # Define time target for different levels
+        self.score_targets = {
+            1: 5000,
+            2: 5200,
+            3: 5800,
+            4: 6800,
+            5: 6800,
+            6: 6800,
+            7: 6800,
+            8: 6800,
+            9: 6800,
+            10: 6800
         }
 
 
@@ -122,10 +162,10 @@ class DroneControlGym(gym.Env):
                     0,
                     0,
                     0,
-                    # 0, #tbp
-                    # 0, #tbp
-                    # 0, #tbp
-                    # 0, #tbp
+                    0, #tbp
+                    0, #tbp
+                    0, #tbp
+                    0, #tbp
                     -np.inf,
                     -np.inf,
                     -np.inf,
@@ -151,10 +191,10 @@ class DroneControlGym(gym.Env):
                     FULL_THROTTLE,
                     FULL_THROTTLE,
                     FULL_THROTTLE,
-                    # 1, #tbp
-                    # 1, #tbp
-                    # 1, #tbp
-                    # 1, #tbp
+                    1, #tbp
+                    1, #tbp
+                    1, #tbp
+                    1, #tbp
                     np.inf,
                     np.inf,
                     np.inf,
@@ -268,6 +308,8 @@ class DroneControlGym(gym.Env):
         xy_range = self.xy_ranges[level_used]
         z_range = self.z_ranges[level_used]
         self.goal_tolerance = self.tolerances[level_used]
+        self.time_target = self.time_targets[level_used]
+        self.score_target = self.score_targets[level_used]
 
         # Randomly generate x and y values within the selected xy rang
         self.goal_pose = [
@@ -277,7 +319,7 @@ class DroneControlGym(gym.Env):
         ]
 
     def _calculate_reward(self):
-        global TIME_TARGET, MAX_TIMESTEPS
+        global MAX_TIMESTEPS
         # calculate reward based on the current state of the drone and if the drone has reached the goal
         # Check if the roll and pitch are close to zero (upright)
         reward = 0
@@ -299,15 +341,15 @@ class DroneControlGym(gym.Env):
             if self.distance_to_goal < self.goal_tolerance:
                 self.time_in_goal += 1 # consecutive time in goal
                 self.total_time_in_goal += 1 # whole episode time in goal
-                if self.total_time_in_goal > TIME_TARGET:
+                if self.total_time_in_goal > self.time_target:
                     self.success_count += 1
                     logging.info(f"Good Hovering! ")
                     reward += HOVER_REWARD
                     truncated = True
                 self.reward_counters["goal"] += 1
-                r_goal = 20 * self.time_in_goal
+                #r_goal = 20 * self.time_in_goal
                 self.reward_sum["goal"] += r_goal
-                reward += r_goal
+                reward += 20
                 if self.last_distance_to_goal > self.distance_to_goal:
                     self.reward_counters["approach"] += 1
                     r_approach = min(200 * (self.last_distance_to_goal - self.distance_to_goal), 1.0)
@@ -439,7 +481,7 @@ class DroneControlGym(gym.Env):
                 self.goal_attributes,
                 self.drone_rpy,
                 self.drone_motor_thrust,
-                # self.motor_states_tbp,
+                self.motor_states_tbp,
                 self.drone_acc,
                 self.drone_gyro,
                 self.drone_linvel,
@@ -450,7 +492,7 @@ class DroneControlGym(gym.Env):
         return (observations, self.reward, self.terminated, self.truncated, self.reward_counters)
 
     def reset(self, seed=None, goal_pose=None):
-        global TIME_TARGET, SCORE_TARGET_UP, SCORE_TARGET_DOWN, CURRICULUM_INTERVAL
+        global SCORE_TARGET_DOWN, CURRICULUM_INTERVAL
         
         #add episode score to the global variable list
         self.all_episode_scores.append(self.episode_total_score)
@@ -458,14 +500,14 @@ class DroneControlGym(gym.Env):
         # Adjust difficulty level based on performance
         if self.episode_count % CURRICULUM_INTERVAL == 0:
             avg_score = np.mean(self.all_episode_scores[-CURRICULUM_INTERVAL:])
-            if avg_score > SCORE_TARGET_UP:
+            if avg_score > self.score_target:
                 self.increase_difficulty()
             elif avg_score < (SCORE_TARGET_DOWN):
                 self.decrease_difficulty()
             else:
                 logging.info("No difficulty adjustment.")
   
-        if self.total_time_in_goal > TIME_TARGET:
+        if self.total_time_in_goal > self.time_target:
             self.success_count += 1
             logging.info(f"Been in goal {self.total_time_in_goal / 100} seconds, regenerating next reset")
             self._generate_goal()
@@ -495,7 +537,7 @@ class DroneControlGym(gym.Env):
                 self.goal_attributes,
                 self.drone_rpy,
                 self.drone_motor_thrust,
-                # self.motor_states_tbp,
+                self.motor_states_tbp,
                 self.drone_acc,
                 self.drone_gyro,
                 self.drone_linvel,
